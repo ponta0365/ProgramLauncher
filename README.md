@@ -39,6 +39,14 @@ python main.py
 `main` への push、`v*` タグ、または手動実行で Windows ビルドが走ります。  
 成果物は `ProgramLauncher_release.zip` としてアップロードされます。
 
+## 配布ページ
+
+- 最新の配布物: https://github.com/ponta0365/ProgramLauncher/releases/latest
+- ZIP 直リンク: https://github.com/ponta0365/ProgramLauncher/releases/latest/download/ProgramLauncher_release.zip
+- EXE 直リンク: https://github.com/ponta0365/ProgramLauncher/releases/latest/download/ProgramLauncher.exe
+
+GitHub Pages を有効にする場合は、`docs/index.html` を配布案内ページとしてそのまま使えます。
+
 ## 開発について
 
 このプロジェクトは、実装や整理の一部で AI を開発支援に活用しています。  

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProgramLauncher ダウンロード</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f1e8;
+      --panel: #ffffff;
+      --text: #1c1b18;
+      --muted: #6a645a;
+      --accent: #1f6feb;
+      --accent-2: #0f5132;
+      --border: #ded6cb;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+      background: linear-gradient(180deg, #f8f3eb 0%, #efe7da 100%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+    .hero {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 20px 40px rgba(0,0,0,.08);
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 2.2rem;
+    }
+    p {
+      line-height: 1.8;
+      margin: 0 0 16px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .btn {
+      display: inline-block;
+      padding: 12px 18px;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .btn.primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn.secondary {
+      background: #fff;
+      color: var(--accent-2);
+      border-color: var(--border);
+    }
+    .note {
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: .95rem;
+    }
+    ul {
+      margin: 12px 0 0 20px;
+      line-height: 1.8;
+    }
+    code {
+      background: #f3efe7;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <h1>ProgramLauncher</h1>
+      <p>Windows向けの常駐ランチャーです。ホットキーやグループ分けで、よく使うアプリ、スクリプト、ファイル、URLをまとめて起動できます。</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/ponta0365/ProgramLauncher/releases/latest/download/ProgramLauncher_release.zip">最新 ZIP をダウンロード</a>
+        <a class="btn secondary" href="https://github.com/ponta0365/ProgramLauncher/releases/latest/download/ProgramLauncher.exe">最新 EXE をダウンロード</a>
+        <a class="btn secondary" href="https://github.com/ponta0365/ProgramLauncher/releases/latest">Releases を開く</a>
+      </div>
+      <p class="note">GitHub Pages を有効化すると、このページを配布案内としてそのまま公開できます。<br>配布物の詳細は Releases を参照してください。</p>
+      <h2>主な機能</h2>
+      <ul>
+        <li>ホットキー起動と Alt 2回押し起動</li>
+        <li>検索して即実行</li>
+        <li>グループ管理と一括登録</li>
+        <li>自動保存、バックアップ / 復元</li>
+        <li>PyInstaller による EXE 配布</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
