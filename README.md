@@ -39,6 +39,11 @@ python main.py
 `main` への push、`v*` タグ、または手動実行で Windows ビルドが走ります。  
 成果物は `ProgramLauncher_release.zip` としてアップロードされます。
 
+## 開発について
+
+このプロジェクトは、実装や整理の一部で AI を開発支援に活用しています。  
+設計、実装、検証、ドキュメント整備の補助として使いながら、最終的な判断と公開内容は人間側で確認しています。
+
 ## 配布物に含めるファイル
 
 ビルドスクリプトは以下を `dist\ProgramLauncher` にコピーします。
@@ -62,3 +67,13 @@ python main.py
 - 第三者ライセンス情報は `THIRD_PARTY_NOTICES.txt` にまとめています
 - PySide6 については `THIRD_PARTY_NOTICES.txt` に公式ライセンス情報への参照を記載しています
 - 自作部分のライセンスを明示したい場合は、リポジトリ直下に `LICENSE` か `LICENSE.txt` を置いてからビルドしてください
+
+## 謝辞
+
+本ソフトウェアの実現にあたり、以下のライブラリとその開発者の皆様に感謝します。
+
+- [Python](https://www.python.org/)
+- [PySide6 / Qt for Python](https://doc.qt.io/qtforpython/)
+- [PyInstaller](https://pyinstaller.org/)
+
+また、Windows 上での動作確認や配布物の整備に役立つ多くのオープンソースソフトウェアにも感謝します。
