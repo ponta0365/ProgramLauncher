@@ -1,0 +1,40 @@
+Third-Party Notices for Program Launcher
+=======================================
+
+This distribution uses third-party software.
+
+1. PySide6 6.11.0
+   Project: Qt for Python / PySide6
+   Home: https://www.qt.io/qt-for-python
+   Package metadata license: LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+
+   Official references:
+   - Qt for Python licenses: https://doc.qt.io/qtforpython-6/licenses.html
+   - Qt licensing overview: https://doc.qt.io/qt-6/licensing.html
+   - Qt for Python commercial use: https://doc.qt.io/qtforpython-6/commercial/index.html
+
+   Distribution note:
+   This build uses the community PySide6 package from pip. If you distribute this
+   application, you are responsible for complying with the applicable Qt / PySide6
+   license terms for the modules you ship. If LGPLv3 obligations are not acceptable
+   for your distribution model, use an appropriate commercial Qt license instead.
+
+2. PyInstaller 6.19.0
+   Project: PyInstaller
+   Home: https://pyinstaller.org/
+   License: GPLv2-or-later with a special exception
+
+   Official reference:
+   - https://pyinstaller.org/en/stable/license.html
+
+   Distribution note:
+   According to the official PyInstaller license page, executable bundles generated
+   from your source code may be shipped under your own application's license, subject
+   to the licenses of bundled dependencies.
+
+Bundled documentation in this distribution:
+- README.md
+- THIRD_PARTY_NOTICES.txt
+- licenses\PyInstaller-COPYING.txt
+
+This notice is a packaging aid, not legal advice.

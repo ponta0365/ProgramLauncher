@@ -1,0 +1,34 @@
+# Build outputs
+build/
+dist/
+release/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Logs and runtime data
+logs/
+data/launcher_config.json
+data/backups/
+*.log
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Archives
+*.zip
+
+# Editor / IDE
+.idea/
+.vscode/
+
+# Internal notes / AI working docs
+ai開発用_問題ログ指示書（codex_canvas用）.md
+dev_issues_log.md
+AI向けプレゼン資料.md
+紹介文.txt
+開発テンプレートV1.txt
+仕様書.txt
