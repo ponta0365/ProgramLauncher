@@ -34,6 +34,11 @@ python main.py
 
 - `dist\ProgramLauncher\ProgramLauncher.exe`
 
+## GitHub Actions
+
+`main` への push、`v*` タグ、または手動実行で Windows ビルドが走ります。  
+成果物は `ProgramLauncher_release.zip` としてアップロードされます。
+
 ## 配布物に含めるファイル
 
 ビルドスクリプトは以下を `dist\ProgramLauncher` にコピーします。
