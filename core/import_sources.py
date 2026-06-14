@@ -33,6 +33,13 @@ STEAM_APPMANIFEST_PATTERN = re.compile(r'^"appid"\s*"(?P<appid>\d+)"|^"name"\s*"
 WINDOWS_PATH_PATTERN = re.compile(
     r'(?i)([A-Za-z]:\\(?:[^<>:"/\\|?*\r\n]+\\)*[^<>:"/\\|?*\r\n]+\.(?:exe|lnk|bat|cmd))'
 )
+WINDOWS_STANDARD_CATEGORY_LABELS = {
+    "settings": "Windows 標準項目 - 設定",
+    "tools": "Windows 標準項目 - 管理ツール",
+    "control_panel": "Windows 標準項目 - コントロール パネル",
+    "explorer": "Windows 標準項目 - エクスプローラー",
+    "terminal": "Windows 標準項目 - ターミナル",
+}
 
 
 def discover_windows_apps() -> list[DiscoveredItem]:
@@ -133,29 +140,33 @@ def discover_files_in_folder(folder: Path, extensions: list[str], recursive: boo
     return discovered
 
 
-def discover_windows_standard_items() -> list[DiscoveredItem]:
-    items: list[DiscoveredItem] = [
-        _standard_url_item("設定 - システム", "ms-settings:system", "system", "Windows のシステム設定を開く"),
-        _standard_url_item("設定 - ディスプレイ", "ms-settings:display", "display", "ディスプレイ設定を開く"),
-        _standard_url_item("設定 - サウンド", "ms-settings:sound", "sound", "サウンド設定を開く"),
-        _standard_url_item("設定 - 通知", "ms-settings:notifications", "notifications", "通知設定を開く"),
-        _standard_url_item("設定 - アプリ", "ms-settings:appsfeatures", "appsfeatures", "アプリと機能を開く"),
-        _standard_url_item("設定 - 既定のアプリ", "ms-settings:defaultapps", "defaultapps", "既定のアプリ設定を開く"),
-        _standard_url_item("設定 - Bluetooth", "ms-settings:bluetooth", "bluetooth", "Bluetooth 設定を開く"),
-        _standard_url_item("設定 - ネットワーク", "ms-settings:network-status", "network-status", "ネットワーク設定を開く"),
-        _standard_url_item("設定 - Windows Update", "ms-settings:windowsupdate", "windowsupdate", "Windows Update を開く"),
-        _standard_url_item("設定 - 個人用設定", "ms-settings:personalization", "personalization", "個人用設定を開く"),
-        _standard_url_item("設定 - プライバシー", "ms-settings:privacy", "privacy", "プライバシー設定を開く"),
-        _standard_url_item("設定 - 詳細情報", "ms-settings:about", "about", "PC 情報を開く"),
-        _standard_shell_item("エクスプローラー - アプリ一覧", "shell:AppsFolder", "apps-folder", "インストール済みアプリ一覧を開く"),
-        _standard_shell_item("エクスプローラー - ダウンロード", "shell:Downloads", "downloads", "ダウンロードフォルダを開く"),
-        _standard_shell_item("エクスプローラー - ドキュメント", "shell:Documents", "documents", "ドキュメントフォルダを開く"),
-        _standard_shell_item("エクスプローラー - デスクトップ", "shell:Desktop", "desktop", "デスクトップを開く"),
-        _standard_shell_item("エクスプローラー - 起動時", "shell:Startup", "startup", "個人のスタートアップを開く"),
-        _standard_shell_item("エクスプローラー - 送る", "shell:SendTo", "sendto", "送るメニューを開く"),
-        _standard_explorer_item("エクスプローラー - コントロール パネル", "shell:ControlPanelFolder", "control-panel", "コントロール パネルを開く"),
-    ]
+def discover_windows_standard_items(category: str | None = None) -> list[DiscoveredItem]:
+    categories = {
+        "settings": _discover_windows_standard_settings,
+        "tools": _discover_windows_standard_tools,
+        "control_panel": _discover_windows_standard_control_panel,
+        "explorer": _discover_windows_standard_explorer,
+        "terminal": _discover_windows_standard_terminal,
+    }
+    if category:
+        discoverer = categories.get(category)
+        return discoverer() if discoverer is not None else []
+
+    items: list[DiscoveredItem] = []
+    for discoverer in categories.values():
+        items.extend(discoverer())
+    items.sort(key=lambda item: item.name.lower())
     return items
+
+
+def discover_windows_standard_category_labels() -> list[tuple[str, str]]:
+    return [
+        ("settings", WINDOWS_STANDARD_CATEGORY_LABELS["settings"]),
+        ("tools", WINDOWS_STANDARD_CATEGORY_LABELS["tools"]),
+        ("control_panel", WINDOWS_STANDARD_CATEGORY_LABELS["control_panel"]),
+        ("explorer", WINDOWS_STANDARD_CATEGORY_LABELS["explorer"]),
+        ("terminal", WINDOWS_STANDARD_CATEGORY_LABELS["terminal"]),
+    ]
 
 
 def _discover_windows_app_from_key(app_key) -> DiscoveredItem | None:
@@ -287,20 +298,100 @@ def _extract_windows_path(raw: str) -> str | None:
     return None
 
 
+def _discover_windows_standard_settings() -> list[DiscoveredItem]:
+    return [
+        _standard_url_item("設定 - システム", "ms-settings:system", "system", "Windows のシステム設定を開く"),
+        _standard_url_item("設定 - ディスプレイ", "ms-settings:display", "display", "ディスプレイ設定を開く"),
+        _standard_url_item("設定 - サウンド", "ms-settings:sound", "sound", "サウンド設定を開く"),
+        _standard_url_item("設定 - 通知", "ms-settings:notifications", "notifications", "通知設定を開く"),
+        _standard_url_item("設定 - アプリ", "ms-settings:appsfeatures", "appsfeatures", "アプリと機能を開く"),
+        _standard_url_item("設定 - 既定のアプリ", "ms-settings:defaultapps", "defaultapps", "既定のアプリ設定を開く"),
+        _standard_url_item("設定 - Bluetooth", "ms-settings:bluetooth", "bluetooth", "Bluetooth 設定を開く"),
+        _standard_url_item("設定 - ネットワーク", "ms-settings:network-status", "network-status", "ネットワーク設定を開く"),
+        _standard_url_item("設定 - Windows Update", "ms-settings:windowsupdate", "windowsupdate", "Windows Update を開く"),
+        _standard_url_item("設定 - 個人用設定", "ms-settings:personalization", "personalization", "個人用設定を開く"),
+        _standard_url_item("設定 - プライバシー", "ms-settings:privacy", "privacy", "プライバシー設定を開く"),
+        _standard_url_item("設定 - カメラ", "ms-settings:privacy-webcam", "privacy-webcam", "カメラのプライバシー設定を開く"),
+        _standard_url_item("設定 - マイク", "ms-settings:privacy-microphone", "privacy-microphone", "マイクのプライバシー設定を開く"),
+        _standard_url_item("設定 - 詳細情報", "ms-settings:about", "about", "PC 情報を開く"),
+    ]
+
+
+def _discover_windows_standard_tools() -> list[DiscoveredItem]:
+    return [
+        _standard_app_item("レジストリ エディター", "regedit.exe", "", "レジストリ エディターを開く"),
+        _standard_app_item("タスク マネージャー", "taskmgr.exe", "", "タスク マネージャーを開く"),
+        _standard_app_item("サービス", "services.msc", "", "サービス管理を開く"),
+        _standard_app_item("デバイス マネージャー", "devmgmt.msc", "", "デバイス マネージャーを開く"),
+        _standard_app_item("イベント ビューアー", "eventvwr.msc", "", "イベント ビューアーを開く"),
+        _standard_app_item("ディスクの管理", "diskmgmt.msc", "", "ディスクの管理を開く"),
+        _standard_app_item("タスク スケジューラ", "taskschd.msc", "", "タスク スケジューラを開く"),
+        _standard_app_item("Windows Defender ファイアウォール", "wf.msc", "", "Windows Defender ファイアウォールを開く"),
+        _standard_app_item("コマンド プロンプト", "cmd.exe", "", "コマンド プロンプトを開く"),
+        _standard_app_item("PowerShell", "powershell.exe", "", "Windows PowerShell を開く"),
+    ]
+
+
+def _discover_windows_standard_control_panel() -> list[DiscoveredItem]:
+    return [
+        _standard_control_panel_item("コントロール パネル - デバイス マネージャー", "Microsoft.DeviceManager", "デバイス マネージャーを開く"),
+        _standard_control_panel_item("コントロール パネル - プログラムと機能", "Microsoft.ProgramsAndFeatures", "インストール済みプログラムを開く"),
+        _standard_control_panel_item("コントロール パネル - ネットワークと共有センター", "Microsoft.NetworkAndSharingCenter", "ネットワーク設定を開く"),
+        _standard_control_panel_item("コントロール パネル - 電源オプション", "Microsoft.PowerOptions", "電源設定を開く"),
+        _standard_control_panel_item("コントロール パネル - サウンド", "Microsoft.Sound", "サウンド設定を開く"),
+        _standard_control_panel_item("コントロール パネル - マウス", "Microsoft.Mouse", "マウス設定を開く"),
+        _standard_control_panel_item("コントロール パネル - 個人用設定", "Microsoft.Personalization", "個人用設定を開く"),
+        _standard_control_panel_item("コントロール パネル - 既定のプログラム", "Microsoft.DefaultPrograms", "既定のプログラム設定を開く"),
+        _standard_control_panel_item("コントロール パネル - 管理ツール", "Microsoft.AdministrativeTools", "管理ツールを開く"),
+        _standard_control_panel_item("コントロール パネル - 回復", "Microsoft.Recovery", "回復設定を開く"),
+    ]
+
+
+def _discover_windows_standard_explorer() -> list[DiscoveredItem]:
+    return [
+        _standard_url_item("エクスプローラー - アプリ一覧", "shell:AppsFolder", "apps-folder", "インストール済みアプリ一覧を開く"),
+        _standard_url_item("エクスプローラー - ダウンロード", "shell:Downloads", "downloads", "ダウンロードフォルダを開く"),
+        _standard_url_item("エクスプローラー - ドキュメント", "shell:Documents", "documents", "ドキュメントフォルダを開く"),
+        _standard_url_item("エクスプローラー - デスクトップ", "shell:Desktop", "desktop", "デスクトップを開く"),
+        _standard_url_item("エクスプローラー - 起動時", "shell:Startup", "startup", "個人のスタートアップを開く"),
+        _standard_url_item("エクスプローラー - 送る", "shell:SendTo", "sendto", "送るメニューを開く"),
+        _standard_url_item("エクスプローラー - コントロール パネル", "shell:ControlPanelFolder", "control-panel", "コントロール パネルを開く"),
+        _standard_url_item("エクスプローラー - ピクチャ", "shell:Pictures", "pictures", "ピクチャフォルダを開く"),
+        _standard_url_item("エクスプローラー - ミュージック", "shell:Music", "music", "ミュージックフォルダを開く"),
+        _standard_url_item("エクスプローラー - ビデオ", "shell:Videos", "videos", "ビデオフォルダを開く"),
+    ]
+
+
+def _discover_windows_standard_terminal() -> list[DiscoveredItem]:
+    return [
+        _standard_app_item("Windows Terminal", "wt.exe", "", "Windows Terminal を開く"),
+        _standard_app_item("コマンド プロンプト", "cmd.exe", "", "コマンド プロンプトを開く"),
+        _standard_app_item("PowerShell", "powershell.exe", "", "Windows PowerShell を開く"),
+        _standard_app_item("PowerShell 7", "pwsh.exe", "", "PowerShell 7 を開く"),
+    ]
+
+
 def _standard_url_item(name: str, target: str, slug: str, description: str) -> DiscoveredItem:
     return DiscoveredItem(name=name, type="url", target=target, args="", workdir="", description=description)
 
 
-def _standard_shell_item(name: str, target: str, slug: str, description: str) -> DiscoveredItem:
-    return DiscoveredItem(name=name, type="url", target=target, args="", workdir="", description=description)
-
-
-def _standard_explorer_item(name: str, shell_target: str, slug: str, description: str) -> DiscoveredItem:
+def _standard_app_item(name: str, target: str, args: str, description: str) -> DiscoveredItem:
     return DiscoveredItem(
         name=name,
         type="app",
-        target="explorer.exe",
-        args=shell_target,
+        target=target,
+        args=args,
+        workdir="",
+        description=description,
+    )
+
+
+def _standard_control_panel_item(name: str, canonical_name: str, description: str) -> DiscoveredItem:
+    return DiscoveredItem(
+        name=name,
+        type="app",
+        target="control.exe",
+        args=canonical_name,
         workdir="",
         description=description,
     )

@@ -117,7 +117,17 @@ class ImportItemsDialog(QDialog):
         self._selected_keys: set[str] = set()
 
         self.source_combo = QComboBox(self)
-        self.source_combo.addItems(["フォルダ", "Windows アプリ一覧", "Windows 標準項目", "Steam ゲーム一覧"])
+        self.source_combo.addItems([
+            "フォルダ",
+            "Windows アプリ一覧",
+            "Windows 標準項目 - 設定",
+            "Windows 標準項目 - 管理ツール",
+            "Windows 標準項目 - コントロール パネル",
+            "Windows 標準項目 - エクスプローラー",
+            "Windows 標準項目 - ターミナル",
+            "Windows 標準項目 - すべて",
+            "Steam ゲーム一覧",
+        ])
         self.source_combo.currentIndexChanged.connect(self._on_source_changed)
 
         self.search_edit = QLineEdit(self)
@@ -219,7 +229,17 @@ class ImportItemsDialog(QDialog):
                 self._all_candidates = discover_files_in_folder(folder, extensions, self.recursive_check.isChecked()) if extensions else []
         elif source == "Windows アプリ一覧":
             self._all_candidates = discover_windows_apps()
-        elif source == "Windows 標準項目":
+        elif source == "Windows 標準項目 - 設定":
+            self._all_candidates = discover_windows_standard_items("settings")
+        elif source == "Windows 標準項目 - 管理ツール":
+            self._all_candidates = discover_windows_standard_items("tools")
+        elif source == "Windows 標準項目 - コントロール パネル":
+            self._all_candidates = discover_windows_standard_items("control_panel")
+        elif source == "Windows 標準項目 - エクスプローラー":
+            self._all_candidates = discover_windows_standard_items("explorer")
+        elif source == "Windows 標準項目 - ターミナル":
+            self._all_candidates = discover_windows_standard_items("terminal")
+        elif source == "Windows 標準項目 - すべて":
             self._all_candidates = discover_windows_standard_items()
         else:
             self._all_candidates = discover_steam_games()
