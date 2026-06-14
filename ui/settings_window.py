@@ -107,11 +107,17 @@ class ImportItemsDialog(QDialog):
         self.resize(980, 640)
         self._groups = groups
         self._default_group = default_group
-        self._candidates: list[DiscoveredItem] = []
+        self._all_candidates: list[DiscoveredItem] = []
+        self._filtered_candidates: list[DiscoveredItem] = []
+        self._selected_keys: set[str] = set()
 
         self.source_combo = QComboBox(self)
         self.source_combo.addItems(["フォルダ", "Windows アプリ一覧", "Steam ゲーム一覧"])
         self.source_combo.currentIndexChanged.connect(self._on_source_changed)
+
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setPlaceholderText("名前 / 種別 / 内容で検索")
+        self.search_edit.textChanged.connect(self._apply_filter)
 
         self.folder_edit = QLineEdit(self)
         self.folder_edit.setPlaceholderText("フォルダを選択")
@@ -134,17 +140,12 @@ class ImportItemsDialog(QDialog):
             self.group_combo.addItem(default_group)
         self.group_combo.setCurrentText(default_group)
 
-        self.table = QTableWidget(self)
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["選択", "名前", "種別", "内容"])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-
         refresh_button = QPushButton("一覧更新", self)
         refresh_button.clicked.connect(self.refresh_candidates)
         select_all_button = QPushButton("全選択", self)
         select_all_button.clicked.connect(self.select_all)
+        select_visible_button = QPushButton("表示中のみ選択", self)
+        select_visible_button.clicked.connect(self.select_visible)
         clear_button = QPushButton("全解除", self)
         clear_button.clicked.connect(self.clear_selection)
         import_button = QPushButton("登録", self)
@@ -155,13 +156,25 @@ class ImportItemsDialog(QDialog):
         actions = QHBoxLayout()
         actions.addWidget(refresh_button)
         actions.addWidget(select_all_button)
+        actions.addWidget(select_visible_button)
         actions.addWidget(clear_button)
         actions.addStretch(1)
         actions.addWidget(import_button)
         actions.addWidget(cancel_button)
 
+        self.table = QTableWidget(self)
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["選択", "名前", "種別", "実行先", "作業フォルダ", "説明"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.itemChanged.connect(self._on_item_changed)
+
+        self.summary_label = QLabel("", self)
+
         form = QFormLayout()
         form.addRow("入力元", self.source_combo)
+        form.addRow("検索", self.search_edit)
         form.addRow("フォルダ", folder_row)
         form.addRow("拡張子", self.extensions_edit)
         form.addRow("", self.recursive_check)
@@ -169,53 +182,63 @@ class ImportItemsDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(self.summary_label)
         layout.addWidget(self.table)
         layout.addLayout(actions)
         self.setLayout(layout)
 
         self._update_source_controls()
-        self.refresh_candidates()
+        self.source_combo.blockSignals(True)
+        self.source_combo.setCurrentText("Windows アプリ一覧")
+        self.source_combo.blockSignals(False)
+        self.refresh_candidates(reset_selection=True)
 
     def selected_group(self) -> str:
         return self.group_combo.currentText().strip() or self._default_group
 
     def selected_candidates(self) -> list[DiscoveredItem]:
         selected_rows = []
-        for row in range(self.table.rowCount()):
-            checkbox_item = self.table.item(row, 0)
-            if checkbox_item is not None and checkbox_item.checkState() == Qt.Checked:
-                candidate = self.table.item(row, 0).data(Qt.UserRole)
-                if isinstance(candidate, DiscoveredItem):
-                    selected_rows.append(candidate)
+        for candidate in self._all_candidates:
+            if self._candidate_key(candidate) in self._selected_keys:
+                selected_rows.append(candidate)
         return selected_rows
 
-    def refresh_candidates(self) -> None:
+    def refresh_candidates(self, reset_selection: bool = False) -> None:
         source = self.source_combo.currentText()
         if source == "フォルダ":
             folder = Path(self.folder_edit.text().strip())
             extensions = self._parse_extensions(self.extensions_edit.text())
             if not folder.exists():
-                self._candidates = []
+                self._all_candidates = []
             else:
-                self._candidates = discover_files_in_folder(folder, extensions, self.recursive_check.isChecked()) if extensions else []
+                self._all_candidates = discover_files_in_folder(folder, extensions, self.recursive_check.isChecked()) if extensions else []
         elif source == "Windows アプリ一覧":
-            self._candidates = discover_windows_apps()
+            self._all_candidates = discover_windows_apps()
         else:
-            self._candidates = discover_steam_games()
+            self._all_candidates = discover_steam_games()
 
-        self._populate_table()
+        candidate_keys = {self._candidate_key(candidate) for candidate in self._all_candidates}
+        if reset_selection:
+            self._selected_keys = set(candidate_keys)
+        else:
+            self._selected_keys.intersection_update(candidate_keys)
+
+        self._apply_filter()
 
     def select_all(self) -> None:
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item is not None:
-                item.setCheckState(Qt.Checked)
+        self._selected_keys = {self._candidate_key(candidate) for candidate in self._all_candidates}
+        self._populate_table()
+        self._update_summary()
+
+    def select_visible(self) -> None:
+        self._selected_keys.update(self._candidate_key(candidate) for candidate in self._filtered_candidates)
+        self._populate_table()
+        self._update_summary()
 
     def clear_selection(self) -> None:
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item is not None:
-                item.setCheckState(Qt.Unchecked)
+        self._selected_keys.clear()
+        self._populate_table()
+        self._update_summary()
 
     def selected_items(self) -> list[DiscoveredItem]:
         return self.selected_candidates()
@@ -228,13 +251,28 @@ class ImportItemsDialog(QDialog):
 
     def _on_source_changed(self, *_: object) -> None:
         self._update_source_controls()
-        self.refresh_candidates()
+        self.refresh_candidates(reset_selection=True)
+
+    def _apply_filter(self, *_: object) -> None:
+        keyword = self.search_edit.text().strip().lower()
+        if keyword:
+            self._filtered_candidates = [
+                candidate
+                for candidate in self._all_candidates
+                if keyword in candidate.name.lower()
+                or keyword in candidate.type.lower()
+                or keyword in candidate.target.lower()
+                or keyword in candidate.description.lower()
+            ]
+        else:
+            self._filtered_candidates = list(self._all_candidates)
+        self._populate_table()
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "登録元フォルダを選択")
         if folder:
             self.folder_edit.setText(folder)
-            self.refresh_candidates()
+            self.refresh_candidates(reset_selection=True)
 
     def _parse_extensions(self, raw_text: str) -> list[str]:
         parts = [part.strip().lower() for part in re.split(r"[,;\s]+", raw_text) if part.strip()]
@@ -246,29 +284,60 @@ class ImportItemsDialog(QDialog):
         return extensions
 
     def _populate_table(self) -> None:
+        self.table.blockSignals(True)
         self.table.setRowCount(0)
-        self.table.setRowCount(len(self._candidates))
-        for row, candidate in enumerate(self._candidates):
+        self.table.setRowCount(len(self._filtered_candidates))
+        for row, candidate in enumerate(self._filtered_candidates):
+            candidate_key = self._candidate_key(candidate)
             selector = QTableWidgetItem("")
             selector.setFlags(selector.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            selector.setCheckState(Qt.Checked)
+            selector.setCheckState(Qt.Checked if candidate_key in self._selected_keys else Qt.Unchecked)
             selector.setData(Qt.UserRole, candidate)
             self.table.setItem(row, 0, selector)
 
             name_item = QTableWidgetItem(candidate.name)
             type_item = QTableWidgetItem(candidate.type)
             target_item = QTableWidgetItem(candidate.target)
+            workdir_item = QTableWidgetItem(candidate.workdir)
+            description_item = QTableWidgetItem(candidate.description)
             self.table.setItem(row, 1, name_item)
             self.table.setItem(row, 2, type_item)
             self.table.setItem(row, 3, target_item)
+            self.table.setItem(row, 4, workdir_item)
+            self.table.setItem(row, 5, description_item)
 
         self.table.resizeColumnsToContents()
+        self.table.blockSignals(False)
+        self._update_summary()
+
+    def _update_summary(self) -> None:
+        total = len(self._all_candidates)
+        visible = len(self._filtered_candidates)
+        selected = len(self.selected_candidates())
+        source = self.source_combo.currentText()
+        self.summary_label.setText(f"ソース: {source}  候補: {visible}/{total}  選択: {selected}")
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() != 0:
+            return
+        candidate = item.data(Qt.UserRole)
+        if not isinstance(candidate, DiscoveredItem):
+            return
+        key = self._candidate_key(candidate)
+        if item.checkState() == Qt.Checked:
+            self._selected_keys.add(key)
+        else:
+            self._selected_keys.discard(key)
+        self._update_summary()
 
     def accept(self) -> None:
         if not self.selected_candidates():
             QMessageBox.information(self, "一括登録", "登録する項目を1つ以上選択してください。")
             return
         super().accept()
+
+    def _candidate_key(self, candidate: DiscoveredItem) -> str:
+        return f"{candidate.type}:{candidate.target.strip().lower()}"
 
 
 class SettingsWindow(QWidget):
