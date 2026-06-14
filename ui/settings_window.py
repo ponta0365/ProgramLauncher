@@ -8,13 +8,15 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QKeySequence
-from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QTabBar, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QTabBar, QTextEdit, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from core.config_manager import ConfigManager
+from core.import_sources import DiscoveredItem, discover_files_in_folder, discover_steam_games, discover_windows_apps, discover_windows_standard_items
 from core.models import LauncherConfig, LauncherItem
 
 
 ALL_GROUP_LABEL = "すべて"
+FAVORITES_LABEL = "お気に入り"
 DEFAULT_GROUP_LABEL = "未分類"
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,8 @@ class ItemEditor(QDialog):
         self.description_edit = QLineEdit(item.description if item else "", self)
         self.admin_check = QCheckBox("管理者権限で実行", self)
         self.admin_check.setChecked(item.run_as_admin if item else False)
+        self.favorite_check = QCheckBox("お気に入り", self)
+        self.favorite_check.setChecked(item.favorite if item else False)
 
         form = QFormLayout()
         form.addRow("表示名", self.name_edit)
@@ -65,6 +69,7 @@ class ItemEditor(QDialog):
         form.addRow("作業フォルダ", self.workdir_edit)
         form.addRow("説明", self.description_edit)
         form.addRow("", self.admin_check)
+        form.addRow("", self.favorite_check)
 
         save_button = QPushButton("保存", self)
         save_button.clicked.connect(self.accept)
@@ -94,9 +99,275 @@ class ItemEditor(QDialog):
             description=self.description_edit.text().strip(),
             group=self.group_combo.currentText().strip() or DEFAULT_GROUP_LABEL,
             run_as_admin=self.admin_check.isChecked(),
+            favorite=self.favorite_check.isChecked(),
             usage_count=usage_count,
             last_used=last_used,
         )
+
+
+class ImportItemsDialog(QDialog):
+    def __init__(self, parent: QWidget | None, groups: list[str], default_group: str) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("一括登録")
+        self.resize(980, 640)
+        self._groups = groups
+        self._default_group = default_group
+        self._all_candidates: list[DiscoveredItem] = []
+        self._filtered_candidates: list[DiscoveredItem] = []
+        self._selected_keys: set[str] = set()
+
+        self.source_combo = QComboBox(self)
+        self.source_combo.addItems([
+            "フォルダ",
+            "Windows アプリ一覧",
+            "Windows 標準項目 - 設定",
+            "Windows 標準項目 - 管理ツール",
+            "Windows 標準項目 - コントロール パネル",
+            "Windows 標準項目 - エクスプローラー",
+            "Windows 標準項目 - ターミナル",
+            "Windows 標準項目 - すべて",
+            "Steam ゲーム一覧",
+        ])
+        self.source_combo.currentIndexChanged.connect(self._on_source_changed)
+
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setPlaceholderText("名前 / 種別 / 内容で検索")
+        self.search_edit.textChanged.connect(self._apply_filter)
+
+        self.folder_edit = QLineEdit(self)
+        self.folder_edit.setPlaceholderText("フォルダを選択")
+        browse_button = QPushButton("参照", self)
+        browse_button.clicked.connect(self._browse_folder)
+
+        folder_row = QHBoxLayout()
+        folder_row.addWidget(self.folder_edit)
+        folder_row.addWidget(browse_button)
+
+        self.extensions_edit = QLineEdit(".exe\n.lnk\n.bat\n.cmd\n.ps1", self)
+        self.extensions_edit.setPlaceholderText("1行ずつ拡張子を入力")
+        self.recursive_check = QCheckBox("サブフォルダも含める", self)
+        self.recursive_check.setChecked(True)
+
+        self.group_combo = QComboBox(self)
+        self.group_combo.setEditable(True)
+        self.group_combo.addItems([group for group in groups if group != ALL_GROUP_LABEL] or [default_group])
+        if default_group not in [self.group_combo.itemText(i) for i in range(self.group_combo.count())]:
+            self.group_combo.addItem(default_group)
+        self.group_combo.setCurrentText(default_group)
+
+        refresh_button = QPushButton("一覧更新", self)
+        refresh_button.clicked.connect(self.refresh_candidates)
+        select_all_button = QPushButton("全選択", self)
+        select_all_button.clicked.connect(self.select_all)
+        select_visible_button = QPushButton("表示中のみ選択", self)
+        select_visible_button.clicked.connect(self.select_visible)
+        clear_button = QPushButton("全解除", self)
+        clear_button.clicked.connect(self.clear_selection)
+        import_button = QPushButton("登録", self)
+        import_button.clicked.connect(self.accept)
+        cancel_button = QPushButton("キャンセル", self)
+        cancel_button.clicked.connect(self.reject)
+
+        actions = QHBoxLayout()
+        actions.addWidget(refresh_button)
+        actions.addWidget(select_all_button)
+        actions.addWidget(select_visible_button)
+        actions.addWidget(clear_button)
+        actions.addStretch(1)
+        actions.addWidget(import_button)
+        actions.addWidget(cancel_button)
+
+        self.table = QTableWidget(self)
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels(["選択", "名前", "種別", "実行先", "引数", "作業フォルダ", "説明"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.itemChanged.connect(self._on_item_changed)
+
+        self.summary_label = QLabel("", self)
+
+        form = QFormLayout()
+        form.addRow("入力元", self.source_combo)
+        form.addRow("検索", self.search_edit)
+        form.addRow("フォルダ", folder_row)
+        form.addRow("拡張子", self.extensions_edit)
+        form.addRow("", self.recursive_check)
+        form.addRow("登録先グループ", self.group_combo)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(self.summary_label)
+        layout.addWidget(self.table)
+        layout.addLayout(actions)
+        self.setLayout(layout)
+
+        self._update_source_controls()
+        self.source_combo.blockSignals(True)
+        self.source_combo.setCurrentText("Windows アプリ一覧")
+        self.source_combo.blockSignals(False)
+        self.refresh_candidates(reset_selection=True)
+
+    def selected_group(self) -> str:
+        return self.group_combo.currentText().strip() or self._default_group
+
+    def selected_candidates(self) -> list[DiscoveredItem]:
+        selected_rows = []
+        for candidate in self._all_candidates:
+            if self._candidate_key(candidate) in self._selected_keys:
+                selected_rows.append(candidate)
+        return selected_rows
+
+    def refresh_candidates(self, reset_selection: bool = False) -> None:
+        source = self.source_combo.currentText()
+        if source == "フォルダ":
+            folder = Path(self.folder_edit.text().strip())
+            extensions = self._parse_extensions(self.extensions_edit.text())
+            if not folder.exists():
+                self._all_candidates = []
+            else:
+                self._all_candidates = discover_files_in_folder(folder, extensions, self.recursive_check.isChecked()) if extensions else []
+        elif source == "Windows アプリ一覧":
+            self._all_candidates = discover_windows_apps()
+        elif source == "Windows 標準項目 - 設定":
+            self._all_candidates = discover_windows_standard_items("settings")
+        elif source == "Windows 標準項目 - 管理ツール":
+            self._all_candidates = discover_windows_standard_items("tools")
+        elif source == "Windows 標準項目 - コントロール パネル":
+            self._all_candidates = discover_windows_standard_items("control_panel")
+        elif source == "Windows 標準項目 - エクスプローラー":
+            self._all_candidates = discover_windows_standard_items("explorer")
+        elif source == "Windows 標準項目 - ターミナル":
+            self._all_candidates = discover_windows_standard_items("terminal")
+        elif source == "Windows 標準項目 - すべて":
+            self._all_candidates = discover_windows_standard_items()
+        else:
+            self._all_candidates = discover_steam_games()
+
+        candidate_keys = {self._candidate_key(candidate) for candidate in self._all_candidates}
+        if reset_selection:
+            self._selected_keys = set(candidate_keys)
+        else:
+            self._selected_keys.intersection_update(candidate_keys)
+
+        self._apply_filter()
+
+    def select_all(self) -> None:
+        self._selected_keys = {self._candidate_key(candidate) for candidate in self._all_candidates}
+        self._populate_table()
+        self._update_summary()
+
+    def select_visible(self) -> None:
+        self._selected_keys.update(self._candidate_key(candidate) for candidate in self._filtered_candidates)
+        self._populate_table()
+        self._update_summary()
+
+    def clear_selection(self) -> None:
+        self._selected_keys.clear()
+        self._populate_table()
+        self._update_summary()
+
+    def selected_items(self) -> list[DiscoveredItem]:
+        return self.selected_candidates()
+
+    def _update_source_controls(self) -> None:
+        folder_mode = self.source_combo.currentText() == "フォルダ"
+        self.folder_edit.setEnabled(folder_mode)
+        self.extensions_edit.setEnabled(folder_mode)
+        self.recursive_check.setEnabled(folder_mode)
+
+    def _on_source_changed(self, *_: object) -> None:
+        self._update_source_controls()
+        self.refresh_candidates(reset_selection=True)
+
+    def _apply_filter(self, *_: object) -> None:
+        keyword = self.search_edit.text().strip().lower()
+        if keyword:
+            self._filtered_candidates = [
+                candidate
+                for candidate in self._all_candidates
+                if keyword in candidate.name.lower()
+                or keyword in candidate.type.lower()
+                or keyword in candidate.target.lower()
+                or keyword in candidate.description.lower()
+            ]
+        else:
+            self._filtered_candidates = list(self._all_candidates)
+        self._populate_table()
+
+    def _browse_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "登録元フォルダを選択")
+        if folder:
+            self.folder_edit.setText(folder)
+            self.refresh_candidates(reset_selection=True)
+
+    def _parse_extensions(self, raw_text: str) -> list[str]:
+        parts = [part.strip().lower() for part in re.split(r"[,;\s]+", raw_text) if part.strip()]
+        extensions = []
+        for part in parts:
+            extension = part if part.startswith(".") else f".{part}"
+            if extension not in extensions:
+                extensions.append(extension)
+        return extensions
+
+    def _populate_table(self) -> None:
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        self.table.setRowCount(len(self._filtered_candidates))
+        for row, candidate in enumerate(self._filtered_candidates):
+            candidate_key = self._candidate_key(candidate)
+            selector = QTableWidgetItem("")
+            selector.setFlags(selector.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            selector.setCheckState(Qt.Checked if candidate_key in self._selected_keys else Qt.Unchecked)
+            selector.setData(Qt.UserRole, candidate)
+            self.table.setItem(row, 0, selector)
+
+            name_item = QTableWidgetItem(candidate.name)
+            type_item = QTableWidgetItem(candidate.type)
+            target_item = QTableWidgetItem(candidate.target)
+            args_item = QTableWidgetItem(candidate.args)
+            workdir_item = QTableWidgetItem(candidate.workdir)
+            description_item = QTableWidgetItem(candidate.description)
+            self.table.setItem(row, 1, name_item)
+            self.table.setItem(row, 2, type_item)
+            self.table.setItem(row, 3, target_item)
+            self.table.setItem(row, 4, args_item)
+            self.table.setItem(row, 5, workdir_item)
+            self.table.setItem(row, 6, description_item)
+
+        self.table.resizeColumnsToContents()
+        self.table.blockSignals(False)
+        self._update_summary()
+
+    def _update_summary(self) -> None:
+        total = len(self._all_candidates)
+        visible = len(self._filtered_candidates)
+        selected = len(self.selected_candidates())
+        source = self.source_combo.currentText()
+        self.summary_label.setText(f"ソース: {source}  候補: {visible}/{total}  選択: {selected}")
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() != 0:
+            return
+        candidate = item.data(Qt.UserRole)
+        if not isinstance(candidate, DiscoveredItem):
+            return
+        key = self._candidate_key(candidate)
+        if item.checkState() == Qt.Checked:
+            self._selected_keys.add(key)
+        else:
+            self._selected_keys.discard(key)
+        self._update_summary()
+
+    def accept(self) -> None:
+        if not self.selected_candidates():
+            QMessageBox.information(self, "一括登録", "登録する項目を1つ以上選択してください。")
+            return
+        super().accept()
+
+    def _candidate_key(self, candidate: DiscoveredItem) -> str:
+        args = re.sub(r"\s+", " ", candidate.args.strip().lower())
+        return f"{candidate.type}:{candidate.target.strip().lower()}|args:{args}"
 
 
 class SettingsWindow(QWidget):
@@ -157,7 +428,7 @@ class SettingsWindow(QWidget):
         add_button = QPushButton("追加", self)
         add_button.clicked.connect(self.add_item)
         import_folder_button = QPushButton("一括登録", self)
-        import_folder_button.clicked.connect(self.import_items_from_folder)
+        import_folder_button.clicked.connect(self.open_import_dialog)
         edit_button = QPushButton("編集", self)
         edit_button.clicked.connect(self.edit_item)
         delete_button = QPushButton("削除", self)
@@ -205,6 +476,9 @@ class SettingsWindow(QWidget):
         self.reload()
 
     def set_current_group(self, group: str) -> None:
+        if group in {"", FAVORITES_LABEL}:
+            self.current_group = ALL_GROUP_LABEL
+            return
         self.current_group = group or ALL_GROUP_LABEL
 
     def recenter(self) -> None:
@@ -227,7 +501,8 @@ class SettingsWindow(QWidget):
             self._reload_group_tabs()
             self.item_list.clear()
             for item in self._items_for_current_group():
-                row = QListWidgetItem(f"{item.command_name} | {item.name} | {item.type} | {item.group}")
+                favorite_mark = "★ " if item.favorite else ""
+                row = QListWidgetItem(f"{favorite_mark}{item.command_name} | {item.name} | {item.type} | {item.group}")
                 row.setData(Qt.UserRole, item.id)
                 self.item_list.addItem(row)
         finally:
@@ -357,58 +632,16 @@ class SettingsWindow(QWidget):
         if backup_path is not None:
             self._show_saved_status(f"バックアップ保存: {backup_path.name}")
 
-    def import_items_from_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "一括登録するフォルダを選択")
-        if not folder:
+    def open_import_dialog(self) -> None:
+        dialog = ImportItemsDialog(self, self._group_names(), self._editor_default_group())
+        if dialog.exec() != QDialog.Accepted:
             return
-
-        preset_labels = [
-            "EXE (.exe)",
-            "LNK (.lnk)",
-            "BAT (.bat)",
-            "CMD (.cmd)",
-            "PS1 (.ps1)",
-            "ファイル (.txt など)",
-        ]
-        selected_presets, accepted = QInputDialog.getMultiLineText(
-            self,
-            "拡張子",
-            "登録する拡張子を1行ずつ入力してください\n例: .exe\n例: .exe\n.lnk\n.ps1",
-            ".exe",
+        discovered = dialog.selected_items()
+        self._import_discovered_items(
+            discovered,
+            dialog.selected_group(),
+            title="一括登録完了",
         )
-        if not accepted:
-            return
-
-        extensions = self._merge_extension_presets(selected_presets)
-        if not extensions:
-            QMessageBox.information(self, "一括登録", "拡張子が入力されていません。")
-            return
-
-        answer = QMessageBox.question(
-            self,
-            "サブフォルダ",
-            "サブフォルダ内の対象ファイルもまとめて登録しますか？",
-            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
-            QMessageBox.Yes,
-        )
-        if answer == QMessageBox.Cancel:
-            return
-
-        recursive = answer == QMessageBox.Yes
-        added, skipped = self._register_paths_from_folder(Path(folder), extensions, recursive)
-        if added:
-            self._save_and_reload()
-            message = f"{added} 件を登録しました。"
-            if skipped:
-                message += f"\n{skipped} 件は既存登録のためスキップしました。"
-            QMessageBox.information(self, "一括登録完了", message)
-            return
-
-        if skipped:
-            QMessageBox.information(self, "一括登録", "対象ファイルはすべて登録済みでした。")
-            return
-
-        QMessageBox.information(self, "一括登録", "登録できる対象ファイルが見つかりませんでした。")
 
     def restore_backup(self) -> None:
         backups = self.config_manager.list_backups()
@@ -448,6 +681,8 @@ class SettingsWindow(QWidget):
         edit_action.setEnabled(len(selected_ids) == 1)
         delete_action = menu.addAction("削除")
         delete_action.setEnabled(bool(selected_ids))
+        favorite_action = menu.addAction("お気に入り切替")
+        favorite_action.setEnabled(bool(selected_ids))
         menu.addSeparator()
         select_all_action = menu.addAction("全選択")
         group_menu = menu.addMenu("グループ変更")
@@ -465,6 +700,8 @@ class SettingsWindow(QWidget):
             self.edit_item()
         elif chosen_action == delete_action:
             self.delete_item()
+        elif chosen_action == favorite_action:
+            self.toggle_favorite_selected_items()
         elif chosen_action == select_all_action:
             self.item_list.selectAll()
 
@@ -494,6 +731,15 @@ class SettingsWindow(QWidget):
         if normalized not in self.config.group_order:
             self.config.group_order.append(normalized)
         self.assign_selected_items_to_group(normalized)
+
+    def toggle_favorite_selected_items(self) -> None:
+        selected_ids = self._selected_item_ids()
+        if not selected_ids:
+            return
+        for item in self.config.items:
+            if item.id in selected_ids:
+                item.favorite = not item.favorite
+        self._save_and_reload()
 
     def reorder_items_from_view(self) -> None:
         if self._suspend_auto_save:
@@ -572,46 +818,53 @@ class SettingsWindow(QWidget):
         QMessageBox.warning(self, "登録失敗", "登録できるローカルファイルまたはフォルダがありませんでした。")
         event.ignore()
 
-    def _register_paths_from_folder(self, folder: Path, extensions: list[str], recursive: bool) -> tuple[int, int]:
-        paths = []
-        for extension in extensions:
-            pattern = f"*{extension}"
-            matched = folder.rglob(pattern) if recursive else folder.glob(pattern)
-            paths.extend(path for path in matched if path.is_file())
+    def _import_discovered_items(self, discovered: list[DiscoveredItem], target_group: str, title: str = "一括登録", empty_message: str | None = None) -> None:
+        if not discovered:
+            QMessageBox.information(self, title, empty_message or "登録できる項目がありませんでした。")
+            return
 
-        unique_paths = sorted({path.resolve(strict=False): path for path in paths}.values(), key=lambda path: str(path).lower())
         added = 0
         skipped = 0
-        existing_targets = {Path(item.target).resolve(strict=False) for item in self.config.items if item.target}
+        existing_targets = {self._compare_target_key(item) for item in self.config.items}
 
-        for file_path in unique_paths:
-            normalized_path = file_path.resolve(strict=False)
-            if normalized_path in existing_targets:
+        for source in discovered:
+            compare_key = self._compare_discovered_target_key(source)
+            if compare_key in existing_targets:
                 skipped += 1
                 continue
-            if self._register_dropped_path(file_path):
-                existing_targets.add(normalized_path)
-                added += 1
 
-        return added, skipped
+            item = LauncherItem(
+                id=self.config_manager.next_item_id(self.config),
+                name=source.name,
+                command_name=self._make_command_name(source.name),
+                aliases=[],
+                type=source.type,
+                target=source.target,
+                args=source.args,
+                workdir=source.workdir,
+                description=source.description,
+                group=target_group,
+            )
+            self.config.items.append(item)
+            existing_targets.add(compare_key)
+            added += 1
 
-    def _merge_extension_presets(self, raw_text: str) -> list[str]:
-        normalized_lines = []
-        for line in raw_text.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            normalized_lines.extend(self._parse_extensions(stripped))
-        return normalized_lines
+        if added:
+            if target_group not in self.config.group_order:
+                self.config.group_order.append(target_group)
+            self.current_group = target_group
+            self._save_and_reload()
+            message = f"{added} 件を登録しました。"
+            if skipped:
+                message += f"\n{skipped} 件は既存登録のためスキップしました。"
+            QMessageBox.information(self, title, message)
+            return
 
-    def _parse_extensions(self, raw_text: str) -> list[str]:
-        parts = [part.strip().lower() for part in re.split(r"[,;\s]+", raw_text) if part.strip()]
-        extensions = []
-        for part in parts:
-            extension = part if part.startswith(".") else f".{part}"
-            if extension not in extensions:
-                extensions.append(extension)
-        return extensions
+        if skipped:
+            QMessageBox.information(self, title, "対象はすべて登録済みでした。")
+            return
+
+        QMessageBox.information(self, title, empty_message or "登録できる項目がありませんでした。")
 
     def _register_dropped_path(self, path: Path) -> bool:
         item_type = self._detect_item_type(path)
@@ -636,6 +889,33 @@ class SettingsWindow(QWidget):
             self.config.group_order.append(target_group)
         self.current_group = target_group
         return True
+
+    def _compare_target_key(self, item: LauncherItem) -> str:
+        if item.type == "url":
+            args = re.sub(r"\s+", " ", item.args.strip().lower())
+            return f"url:{item.target.strip().lower()}|args:{args}"
+        args = re.sub(r"\s+", " ", item.args.strip().lower())
+        candidate = item.target.strip()
+        if self._looks_like_path(candidate):
+            path = Path(candidate).expanduser()
+            return f"path:{path.resolve(strict=False)}|args:{args}"
+        return f"text:{candidate.lower()}|args:{args}"
+
+    def _compare_discovered_target_key(self, source: DiscoveredItem) -> str:
+        args = re.sub(r"\s+", " ", source.args.strip().lower())
+        if source.type == "url":
+            return f"url:{source.target.strip().lower()}|args:{args}"
+        path = Path(source.target).expanduser()
+        return f"path:{path.resolve(strict=False)}|args:{args}"
+
+    def _looks_like_path(self, value: str) -> bool:
+        normalized = value.strip().strip('"')
+        return bool(
+            normalized.startswith(("~", ".", r"\\"))
+            or ":" in normalized
+            or "\\" in normalized
+            or "/" in normalized
+        )
 
     def _detect_item_type(self, path: Path) -> str | None:
         if path.is_dir():

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import ctypes
 import time
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QTabBar, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QApplication, QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QTabBar, QVBoxLayout, QWidget
 
 from core.config_manager import ConfigManager
 from core.executor import Executor
@@ -12,8 +13,36 @@ from core.search_engine import SearchEngine
 
 
 ALL_GROUP_LABEL = "すべて"
+FAVORITES_LABEL = "お気に入り"
 DEFAULT_GROUP_LABEL = "未分類"
 EXECUTION_GUARD_SECONDS = 0.4
+
+user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
+SW_RESTORE = 9
+ASFW_ANY = 0xFFFFFFFF
+SWP_NOMOVE = 0x0002
+SWP_NOSIZE = 0x0001
+SWP_SHOWWINDOW = 0x0040
+HWND_TOPMOST = ctypes.c_void_p(-1)
+HWND_NOTOPMOST = ctypes.c_void_p(-2)
+
+user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+user32.SetForegroundWindow.restype = ctypes.c_bool
+user32.BringWindowToTop.argtypes = [ctypes.c_void_p]
+user32.BringWindowToTop.restype = ctypes.c_bool
+user32.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+user32.SetWindowPos.restype = ctypes.c_bool
+user32.GetForegroundWindow.argtypes = []
+user32.GetForegroundWindow.restype = ctypes.c_void_p
+user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
+user32.AttachThreadInput.argtypes = [ctypes.c_ulong, ctypes.c_ulong, ctypes.c_bool]
+user32.AttachThreadInput.restype = ctypes.c_bool
+user32.SetActiveWindow.argtypes = [ctypes.c_void_p]
+user32.SetActiveWindow.restype = ctypes.c_void_p
+kernel32.GetCurrentThreadId.argtypes = []
+kernel32.GetCurrentThreadId.restype = ctypes.c_ulong
 
 
 class LauncherWindow(QWidget):
@@ -62,6 +91,7 @@ class LauncherWindow(QWidget):
         layout.addWidget(self.list_widget)
         layout.addWidget(self.guide_label)
         self.setLayout(layout)
+        self.setFocusProxy(self.search_input)
 
         self.refresh_items()
 
@@ -76,7 +106,8 @@ class LauncherWindow(QWidget):
         self.current_results = self.search_engine.search(visible_items, query)
         self.list_widget.clear()
         for item in self.current_results:
-            label = f"{item.name} [{item.type}] - {item.description}"
+            favorite_mark = "★ " if item.favorite else ""
+            label = f"{favorite_mark}{item.name} [{item.type}] - {item.description}"
             list_item = QListWidgetItem(label)
             list_item.setData(Qt.UserRole, item.id)
             self.list_widget.addItem(list_item)
@@ -127,10 +158,53 @@ class LauncherWindow(QWidget):
     def show_launcher(self) -> None:
         self.refresh_items()
         self.show()
+        self.showNormal()
+        self._activate_launcher()
+        QTimer.singleShot(0, self._activate_launcher)
+        QTimer.singleShot(120, self._activate_launcher)
+        QTimer.singleShot(240, self._activate_launcher)
+
+    def _activate_launcher(self) -> None:
+        if not self.isVisible():
+            self.show()
+        app = QApplication.instance()
+        if app is not None:
+            app.setActiveWindow(self)
+        hwnd = int(self.winId())
+        if hwnd:
+            foreground = user32.GetForegroundWindow()
+            current_thread = kernel32.GetCurrentThreadId()
+            foreground_thread = 0
+            if foreground:
+                pid = ctypes.c_ulong(0)
+                foreground_thread = user32.GetWindowThreadProcessId(foreground, ctypes.byref(pid))
+            if foreground_thread and foreground_thread != current_thread:
+                user32.AttachThreadInput(current_thread, foreground_thread, True)
+            user32.AllowSetForegroundWindow(ASFW_ANY)
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetActiveWindow(hwnd)
+            user32.BringWindowToTop(hwnd)
+            if foreground_thread and foreground_thread != current_thread:
+                user32.AttachThreadInput(current_thread, foreground_thread, False)
+        if self.windowHandle() is not None:
+            self.windowHandle().requestActivate()
         self.raise_()
         self.activateWindow()
-        self.search_input.setFocus()
+        self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+        self._focus_search_input()
+        self.search_input.setFocus(Qt.OtherFocusReason)
+
+    def _focus_search_input(self) -> None:
+        self.search_input.setFocus(Qt.ActiveWindowFocusReason)
         self.search_input.selectAll()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        QTimer.singleShot(0, self._activate_launcher)
+        QTimer.singleShot(50, self._focus_search_input)
 
     def hide_launcher(self) -> None:
         self.hide()
@@ -155,7 +229,7 @@ class LauncherWindow(QWidget):
         groups = list(self.config.group_order)
         if DEFAULT_GROUP_LABEL not in groups:
             groups.append(DEFAULT_GROUP_LABEL)
-        return [ALL_GROUP_LABEL, *groups]
+        return [ALL_GROUP_LABEL, FAVORITES_LABEL, *groups]
 
     def _reload_group_tabs(self) -> None:
         groups = self._group_names()
@@ -176,6 +250,8 @@ class LauncherWindow(QWidget):
     def _items_for_current_group(self) -> list[LauncherItem]:
         if self.current_group == ALL_GROUP_LABEL:
             return list(self.config.items)
+        if self.current_group == FAVORITES_LABEL:
+            return [item for item in self.config.items if item.favorite]
         return [item for item in self.config.items if (item.group or DEFAULT_GROUP_LABEL) == self.current_group]
 
     def _on_group_changed(self, index: int) -> None:

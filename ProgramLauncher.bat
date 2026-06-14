@@ -1,30 +1,35 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 
 set "BASE_DIR=%~dp0"
-set "EXE_PATH=%BASE_DIR%dist\ProgramLauncher\ProgramLauncher.exe"
-set "ALT_EXE_PATH=%BASE_DIR%release\ProgramLauncher\ProgramLauncher.exe"
-set "PYTHON=python"
+set "ROOT_EXE=%BASE_DIR%ProgramLauncher.exe"
+set "DIST_EXE=%BASE_DIR%dist\ProgramLauncher\ProgramLauncher.exe"
+set "RELEASE_EXE=%BASE_DIR%release\ProgramLauncher\ProgramLauncher.exe"
+set "MAIN_PY=%BASE_DIR%main.py"
 
-if exist "%BASE_DIR%ProgramLauncher.exe" (
-    start "" "%BASE_DIR%ProgramLauncher.exe"
+if exist "%MAIN_PY%" (
+    py -3.12 "%MAIN_PY%"
+    if not errorlevel 1 exit /b 0
+
+    python "%MAIN_PY%"
+    if not errorlevel 1 exit /b 0
+)
+
+if exist "%ROOT_EXE%" (
+    start "" "%ROOT_EXE%"
     exit /b 0
 )
 
-if exist "%EXE_PATH%" (
-    start "" "%EXE_PATH%"
+if exist "%DIST_EXE%" (
+    start "" "%DIST_EXE%"
     exit /b 0
 )
 
-if exist "%ALT_EXE_PATH%" (
-    start "" "%ALT_EXE_PATH%"
-    exit /b 0
-)
-
-if exist "%BASE_DIR%main.py" (
-    start "" %PYTHON% "%BASE_DIR%main.py"
+if exist "%RELEASE_EXE%" (
+    start "" "%RELEASE_EXE%"
     exit /b 0
 )
 
 echo ProgramLauncher.exe or main.py was not found.
+echo Python 3.12 / py / python ????????????
 exit /b 1

@@ -40,6 +40,8 @@ class ConfigManager:
         return config
 
     def save(self, config: LauncherConfig) -> None:
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
         self.normalize_group_order(config)
         self.normalize_items(config)
         if self.config_path.exists():
