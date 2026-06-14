@@ -11,11 +11,12 @@ from PySide6.QtGui import QGuiApplication, QKeySequence
 from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QTabBar, QTextEdit, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from core.config_manager import ConfigManager
-from core.import_sources import DiscoveredItem, discover_files_in_folder, discover_steam_games, discover_windows_apps
+from core.import_sources import DiscoveredItem, discover_files_in_folder, discover_steam_games, discover_windows_apps, discover_windows_standard_items
 from core.models import LauncherConfig, LauncherItem
 
 
 ALL_GROUP_LABEL = "すべて"
+FAVORITES_LABEL = "お気に入り"
 DEFAULT_GROUP_LABEL = "未分類"
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,8 @@ class ItemEditor(QDialog):
         self.description_edit = QLineEdit(item.description if item else "", self)
         self.admin_check = QCheckBox("管理者権限で実行", self)
         self.admin_check.setChecked(item.run_as_admin if item else False)
+        self.favorite_check = QCheckBox("お気に入り", self)
+        self.favorite_check.setChecked(item.favorite if item else False)
 
         form = QFormLayout()
         form.addRow("表示名", self.name_edit)
@@ -66,6 +69,7 @@ class ItemEditor(QDialog):
         form.addRow("作業フォルダ", self.workdir_edit)
         form.addRow("説明", self.description_edit)
         form.addRow("", self.admin_check)
+        form.addRow("", self.favorite_check)
 
         save_button = QPushButton("保存", self)
         save_button.clicked.connect(self.accept)
@@ -95,6 +99,7 @@ class ItemEditor(QDialog):
             description=self.description_edit.text().strip(),
             group=self.group_combo.currentText().strip() or DEFAULT_GROUP_LABEL,
             run_as_admin=self.admin_check.isChecked(),
+            favorite=self.favorite_check.isChecked(),
             usage_count=usage_count,
             last_used=last_used,
         )
@@ -112,7 +117,7 @@ class ImportItemsDialog(QDialog):
         self._selected_keys: set[str] = set()
 
         self.source_combo = QComboBox(self)
-        self.source_combo.addItems(["フォルダ", "Windows アプリ一覧", "Steam ゲーム一覧"])
+        self.source_combo.addItems(["フォルダ", "Windows アプリ一覧", "Windows 標準項目", "Steam ゲーム一覧"])
         self.source_combo.currentIndexChanged.connect(self._on_source_changed)
 
         self.search_edit = QLineEdit(self)
@@ -163,8 +168,8 @@ class ImportItemsDialog(QDialog):
         actions.addWidget(cancel_button)
 
         self.table = QTableWidget(self)
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["選択", "名前", "種別", "実行先", "作業フォルダ", "説明"])
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels(["選択", "名前", "種別", "実行先", "引数", "作業フォルダ", "説明"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -214,6 +219,8 @@ class ImportItemsDialog(QDialog):
                 self._all_candidates = discover_files_in_folder(folder, extensions, self.recursive_check.isChecked()) if extensions else []
         elif source == "Windows アプリ一覧":
             self._all_candidates = discover_windows_apps()
+        elif source == "Windows 標準項目":
+            self._all_candidates = discover_windows_standard_items()
         else:
             self._all_candidates = discover_steam_games()
 
@@ -298,13 +305,15 @@ class ImportItemsDialog(QDialog):
             name_item = QTableWidgetItem(candidate.name)
             type_item = QTableWidgetItem(candidate.type)
             target_item = QTableWidgetItem(candidate.target)
+            args_item = QTableWidgetItem(candidate.args)
             workdir_item = QTableWidgetItem(candidate.workdir)
             description_item = QTableWidgetItem(candidate.description)
             self.table.setItem(row, 1, name_item)
             self.table.setItem(row, 2, type_item)
             self.table.setItem(row, 3, target_item)
-            self.table.setItem(row, 4, workdir_item)
-            self.table.setItem(row, 5, description_item)
+            self.table.setItem(row, 4, args_item)
+            self.table.setItem(row, 5, workdir_item)
+            self.table.setItem(row, 6, description_item)
 
         self.table.resizeColumnsToContents()
         self.table.blockSignals(False)
@@ -337,7 +346,8 @@ class ImportItemsDialog(QDialog):
         super().accept()
 
     def _candidate_key(self, candidate: DiscoveredItem) -> str:
-        return f"{candidate.type}:{candidate.target.strip().lower()}"
+        args = re.sub(r"\s+", " ", candidate.args.strip().lower())
+        return f"{candidate.type}:{candidate.target.strip().lower()}|args:{args}"
 
 
 class SettingsWindow(QWidget):
@@ -446,6 +456,9 @@ class SettingsWindow(QWidget):
         self.reload()
 
     def set_current_group(self, group: str) -> None:
+        if group in {"", FAVORITES_LABEL}:
+            self.current_group = ALL_GROUP_LABEL
+            return
         self.current_group = group or ALL_GROUP_LABEL
 
     def recenter(self) -> None:
@@ -468,7 +481,8 @@ class SettingsWindow(QWidget):
             self._reload_group_tabs()
             self.item_list.clear()
             for item in self._items_for_current_group():
-                row = QListWidgetItem(f"{item.command_name} | {item.name} | {item.type} | {item.group}")
+                favorite_mark = "★ " if item.favorite else ""
+                row = QListWidgetItem(f"{favorite_mark}{item.command_name} | {item.name} | {item.type} | {item.group}")
                 row.setData(Qt.UserRole, item.id)
                 self.item_list.addItem(row)
         finally:
@@ -647,6 +661,8 @@ class SettingsWindow(QWidget):
         edit_action.setEnabled(len(selected_ids) == 1)
         delete_action = menu.addAction("削除")
         delete_action.setEnabled(bool(selected_ids))
+        favorite_action = menu.addAction("お気に入り切替")
+        favorite_action.setEnabled(bool(selected_ids))
         menu.addSeparator()
         select_all_action = menu.addAction("全選択")
         group_menu = menu.addMenu("グループ変更")
@@ -664,6 +680,8 @@ class SettingsWindow(QWidget):
             self.edit_item()
         elif chosen_action == delete_action:
             self.delete_item()
+        elif chosen_action == favorite_action:
+            self.toggle_favorite_selected_items()
         elif chosen_action == select_all_action:
             self.item_list.selectAll()
 
@@ -693,6 +711,15 @@ class SettingsWindow(QWidget):
         if normalized not in self.config.group_order:
             self.config.group_order.append(normalized)
         self.assign_selected_items_to_group(normalized)
+
+    def toggle_favorite_selected_items(self) -> None:
+        selected_ids = self._selected_item_ids()
+        if not selected_ids:
+            return
+        for item in self.config.items:
+            if item.id in selected_ids:
+                item.favorite = not item.favorite
+        self._save_and_reload()
 
     def reorder_items_from_view(self) -> None:
         if self._suspend_auto_save:
@@ -793,7 +820,7 @@ class SettingsWindow(QWidget):
                 aliases=[],
                 type=source.type,
                 target=source.target,
-                args="",
+                args=source.args,
                 workdir=source.workdir,
                 description=source.description,
                 group=target_group,
@@ -845,18 +872,21 @@ class SettingsWindow(QWidget):
 
     def _compare_target_key(self, item: LauncherItem) -> str:
         if item.type == "url":
-            return f"url:{item.target.strip().lower()}"
+            args = re.sub(r"\s+", " ", item.args.strip().lower())
+            return f"url:{item.target.strip().lower()}|args:{args}"
+        args = re.sub(r"\s+", " ", item.args.strip().lower())
         candidate = item.target.strip()
         if self._looks_like_path(candidate):
             path = Path(candidate).expanduser()
-            return f"path:{path.resolve(strict=False)}"
-        return f"text:{candidate.lower()}"
+            return f"path:{path.resolve(strict=False)}|args:{args}"
+        return f"text:{candidate.lower()}|args:{args}"
 
     def _compare_discovered_target_key(self, source: DiscoveredItem) -> str:
+        args = re.sub(r"\s+", " ", source.args.strip().lower())
         if source.type == "url":
-            return f"url:{source.target.strip().lower()}"
+            return f"url:{source.target.strip().lower()}|args:{args}"
         path = Path(source.target).expanduser()
-        return f"path:{path.resolve(strict=False)}"
+        return f"path:{path.resolve(strict=False)}|args:{args}"
 
     def _looks_like_path(self, value: str) -> bool:
         normalized = value.strip().strip('"')
@@ -865,7 +895,6 @@ class SettingsWindow(QWidget):
             or ":" in normalized
             or "\\" in normalized
             or "/" in normalized
-            or normalized.lower().endswith((".exe", ".lnk", ".bat", ".cmd", ".ps1"))
         )
 
     def _detect_item_type(self, path: Path) -> str | None:

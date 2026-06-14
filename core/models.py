@@ -24,6 +24,7 @@ class LauncherItem:
     description: str = ""
     group: str = "未分類"
     run_as_admin: bool = False
+    favorite: bool = False
     usage_count: int = 0
     last_used: str = ""
 

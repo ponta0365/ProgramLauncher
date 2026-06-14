@@ -17,8 +17,9 @@ class DiscoveredItem:
     name: str
     type: str
     target: str
-    workdir: str
-    description: str
+    args: str = ""
+    workdir: str = ""
+    description: str = ""
 
 
 WINDOWS_UNINSTALL_KEYS = []
@@ -94,6 +95,7 @@ def discover_steam_games() -> list[DiscoveredItem]:
                 name=name,
                 type="url",
                 target=f"steam://rungameid/{appid}",
+                args="",
                 workdir="",
                 description=f"Steam ゲームを起動: {name}",
             )
@@ -122,12 +124,38 @@ def discover_files_in_folder(folder: Path, extensions: list[str], recursive: boo
                 name=file_path.stem or file_path.name,
                 type=item_type,
                 target=str(file_path),
+                args="",
                 workdir=str(file_path.parent),
                 description=_build_file_description(file_path, item_type),
             )
         )
 
     return discovered
+
+
+def discover_windows_standard_items() -> list[DiscoveredItem]:
+    items: list[DiscoveredItem] = [
+        _standard_url_item("設定 - システム", "ms-settings:system", "system", "Windows のシステム設定を開く"),
+        _standard_url_item("設定 - ディスプレイ", "ms-settings:display", "display", "ディスプレイ設定を開く"),
+        _standard_url_item("設定 - サウンド", "ms-settings:sound", "sound", "サウンド設定を開く"),
+        _standard_url_item("設定 - 通知", "ms-settings:notifications", "notifications", "通知設定を開く"),
+        _standard_url_item("設定 - アプリ", "ms-settings:appsfeatures", "appsfeatures", "アプリと機能を開く"),
+        _standard_url_item("設定 - 既定のアプリ", "ms-settings:defaultapps", "defaultapps", "既定のアプリ設定を開く"),
+        _standard_url_item("設定 - Bluetooth", "ms-settings:bluetooth", "bluetooth", "Bluetooth 設定を開く"),
+        _standard_url_item("設定 - ネットワーク", "ms-settings:network-status", "network-status", "ネットワーク設定を開く"),
+        _standard_url_item("設定 - Windows Update", "ms-settings:windowsupdate", "windowsupdate", "Windows Update を開く"),
+        _standard_url_item("設定 - 個人用設定", "ms-settings:personalization", "personalization", "個人用設定を開く"),
+        _standard_url_item("設定 - プライバシー", "ms-settings:privacy", "privacy", "プライバシー設定を開く"),
+        _standard_url_item("設定 - 詳細情報", "ms-settings:about", "about", "PC 情報を開く"),
+        _standard_shell_item("エクスプローラー - アプリ一覧", "shell:AppsFolder", "apps-folder", "インストール済みアプリ一覧を開く"),
+        _standard_shell_item("エクスプローラー - ダウンロード", "shell:Downloads", "downloads", "ダウンロードフォルダを開く"),
+        _standard_shell_item("エクスプローラー - ドキュメント", "shell:Documents", "documents", "ドキュメントフォルダを開く"),
+        _standard_shell_item("エクスプローラー - デスクトップ", "shell:Desktop", "desktop", "デスクトップを開く"),
+        _standard_shell_item("エクスプローラー - 起動時", "shell:Startup", "startup", "個人のスタートアップを開く"),
+        _standard_shell_item("エクスプローラー - 送る", "shell:SendTo", "sendto", "送るメニューを開く"),
+        _standard_explorer_item("エクスプローラー - コントロール パネル", "shell:ControlPanelFolder", "control-panel", "コントロール パネルを開く"),
+    ]
+    return items
 
 
 def _discover_windows_app_from_key(app_key) -> DiscoveredItem | None:
@@ -257,6 +285,25 @@ def _extract_windows_path(raw: str) -> str | None:
     if first and Path(first).exists():
         return first
     return None
+
+
+def _standard_url_item(name: str, target: str, slug: str, description: str) -> DiscoveredItem:
+    return DiscoveredItem(name=name, type="url", target=target, args="", workdir="", description=description)
+
+
+def _standard_shell_item(name: str, target: str, slug: str, description: str) -> DiscoveredItem:
+    return DiscoveredItem(name=name, type="url", target=target, args="", workdir="", description=description)
+
+
+def _standard_explorer_item(name: str, shell_target: str, slug: str, description: str) -> DiscoveredItem:
+    return DiscoveredItem(
+        name=name,
+        type="app",
+        target="explorer.exe",
+        args=shell_target,
+        workdir="",
+        description=description,
+    )
 
 
 def _read_reg_value(key, name: str) -> str:

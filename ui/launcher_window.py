@@ -13,6 +13,7 @@ from core.search_engine import SearchEngine
 
 
 ALL_GROUP_LABEL = "すべて"
+FAVORITES_LABEL = "お気に入り"
 DEFAULT_GROUP_LABEL = "未分類"
 EXECUTION_GUARD_SECONDS = 0.4
 
@@ -105,7 +106,8 @@ class LauncherWindow(QWidget):
         self.current_results = self.search_engine.search(visible_items, query)
         self.list_widget.clear()
         for item in self.current_results:
-            label = f"{item.name} [{item.type}] - {item.description}"
+            favorite_mark = "★ " if item.favorite else ""
+            label = f"{favorite_mark}{item.name} [{item.type}] - {item.description}"
             list_item = QListWidgetItem(label)
             list_item.setData(Qt.UserRole, item.id)
             self.list_widget.addItem(list_item)
@@ -227,7 +229,7 @@ class LauncherWindow(QWidget):
         groups = list(self.config.group_order)
         if DEFAULT_GROUP_LABEL not in groups:
             groups.append(DEFAULT_GROUP_LABEL)
-        return [ALL_GROUP_LABEL, *groups]
+        return [ALL_GROUP_LABEL, FAVORITES_LABEL, *groups]
 
     def _reload_group_tabs(self) -> None:
         groups = self._group_names()
@@ -248,6 +250,8 @@ class LauncherWindow(QWidget):
     def _items_for_current_group(self) -> list[LauncherItem]:
         if self.current_group == ALL_GROUP_LABEL:
             return list(self.config.items)
+        if self.current_group == FAVORITES_LABEL:
+            return [item for item in self.config.items if item.favorite]
         return [item for item in self.config.items if (item.group or DEFAULT_GROUP_LABEL) == self.current_group]
 
     def _on_group_changed(self, index: int) -> None:
